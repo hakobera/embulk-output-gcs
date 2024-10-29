@@ -18,6 +18,7 @@ package org.embulk.output.gcs;
 
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -48,6 +49,7 @@ import org.mockito.Mockito;
 import static org.embulk.output.gcs.GcsOutputPlugin.CONFIG_MAPPER;
 import static org.embulk.output.gcs.GcsOutputPlugin.CONFIG_MAPPER_FACTORY;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeNotNull;
@@ -138,6 +140,7 @@ public class TestGcsOutputPlugin
 
         PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
         assertEquals("private_key", task.getAuthMethod().toString());
+        assertFalse(task.getDeleteInAdvance());
     }
 
     // p12_keyfile is null when auth_method is private_key
@@ -302,6 +305,26 @@ public class TestGcsOutputPlugin
         assertEquals("sample.000.01.csv", fileOutput.generateRemotePath("......///sample", task.getSequenceFormat(), 0, 1, ".csv"));
     }
 
+    @Test
+    public void testDeleteFilesInAdvanceSuccessfully() throws Exception
+    {
+        ConfigSource configSource = config();
+        PluginTask task = CONFIG_MAPPER.map(configSource, PluginTask.class);
+        Storage client = plugin.createClient(task);
+
+        // Even if a file exists, it will be a success.
+        uploadEmptyFile(client, task.getBucket(), task.getPathPrefix() + ".001.csv");
+        uploadEmptyFile(client, task.getBucket(), task.getPathPrefix() + ".002.csv");
+
+        assertTrue(isFileExist(client, task.getBucket(), task.getPathPrefix() + ".001.csv"));
+        assertTrue(isFileExist(client, task.getBucket(), task.getPathPrefix() + ".002.csv"));
+
+        plugin.deleteFiles(task);
+
+        assertFalse(isFileExist(client, task.getBucket(), task.getPathPrefix() + ".001.csv"));
+        assertFalse(isFileExist(client, task.getBucket(), task.getPathPrefix() + ".002.csv"));
+    }
+
     public ConfigSource config()
     {
         byte[] keyBytes = Base64.getDecoder().decode(GCP_P12_KEYFILE.get());
@@ -408,5 +431,17 @@ public class TestGcsOutputPlugin
             bo.write(buffer, 0, len);
         }
         return bo.toByteArray();
+    }
+
+    private static void uploadEmptyFile(Storage client, String gcsBucket, String gcsPath) throws IOException
+    {
+        BlobId blobId = BlobId.of(gcsBucket, gcsPath);
+        BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
+        client.create(blobInfo, new byte[0]);
+    }
+
+    private static boolean isFileExist(Storage client, String gcsBucket, String gcsPath)
+    {
+        return client.get(BlobId.of(gcsBucket, gcsPath)) != null;
     }
 }

@@ -87,4 +87,8 @@ public interface PluginTask extends Task
     @Config("key_pass")
     @ConfigDefault("\"notasecret\"")
     String getKeyPass();
+
+    @Config("delete_in_advance")
+    @ConfigDefault("false")
+    boolean getDeleteInAdvance();
 }
